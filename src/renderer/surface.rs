@@ -3,6 +3,8 @@ use std::{cell::RefCell, mem::size_of, rc::Rc};
 use glow::{HasContext, NativeBuffer, NativeVertexArray};
 use nalgebra::{Vector2, Vector3, Vector4};
 
+use crate::resource::{Resource, ResourceKind};
+
 use super::renderer::GL;
 
 #[derive(Debug)]
@@ -269,20 +271,39 @@ type SurfaceSharedDataRef = Rc<RefCell<SurfaceSharedData>>;
 
 #[derive(Debug)]
 pub struct Surface {
-    pub data: SurfaceSharedDataRef,
+    pub(crate) data: SurfaceSharedDataRef,
+    pub(crate) texture: Option<Rc<RefCell<Resource>>>,
 }
 
 impl Surface {
     pub fn new(data: &SurfaceSharedDataRef) -> Self {
-        Self { data: data.clone() }
+        Self {
+            data: data.clone(),
+            texture: None,
+        }
+    }
+    pub fn set_texture(&mut self, tex: Rc<RefCell<Resource>>) {
+        if let ResourceKind::Texture(_) = tex.borrow_mut().borrow_kind() {
+            self.texture = Some(tex.clone());
+        } else {
+            self.texture = None;
+        }
     }
 
     pub fn draw(&self) {
         unsafe {
             let gl = GL.get().unwrap();
+
             let mut data = self.data.borrow_mut();
             if data.need_upload {
                 data.upload();
+            }
+            if let Some(ref resource) = self.texture {
+                if let ResourceKind::Texture(texture) = &resource.borrow_mut().borrow_kind() {
+                    gl.bind_texture(glow::TEXTURE_2D, texture.gpu_tex);
+                }
+            } else {
+                gl.bind_texture(glow::TEXTURE_2D, None);
             }
             gl.bind_vertex_array(Some(data.vao));
             gl.draw_elements(

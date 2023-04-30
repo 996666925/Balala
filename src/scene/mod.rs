@@ -85,17 +85,16 @@ impl Scene {
                     if let Some(node) = self.nodes.borrow_mut(&handle) {
                         node.calculate_local_transform();
                         parent_handle = node.parent.clone();
-                
                     }
 
                     // Extract parent's local transform
-                    let mut parent_local_transform = Matrix4::identity();
+                    let mut parent_global_transform = Matrix4::identity();
                     if let Some(parent) = self.nodes.borrow_mut(&parent_handle) {
-                        parent_local_transform = parent.local_transform;
+                        parent_global_transform = parent.global_transform;
                     }
 
                     if let Some(node) = self.nodes.borrow_mut(&handle) {
-                        node.global_transform = node.local_transform * parent_local_transform;
+                        node.global_transform = parent_global_transform * node.local_transform;
 
                         let eye = node.get_global_position();
                         let look = node.get_look_vector();
@@ -106,7 +105,6 @@ impl Scene {
                             camera.calculate_matrices(eye.into(), look.into(), up, aspect_ratio);
                         }
 
-                        
                         for child_handle in node.children.iter() {
                             self.stack.push(child_handle.clone());
                         }

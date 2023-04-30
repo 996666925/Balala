@@ -14,3 +14,5 @@ raw-window-handle = "0.5.2"
 winit = "0.28.3"
 nalgebra = {version = "0.32.2", features = ["bytemuck"]}
 bytemuck = "1.13.1"
+image = "0.24.6"
+fbxcel-dom = "0.0.10"

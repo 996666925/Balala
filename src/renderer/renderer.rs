@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 
 use glow::{
     Context, HasContext, NativeProgram, NativeShader, NativeUniformLocation, UniformLocation,
@@ -8,7 +8,7 @@ use glutin::{
     context::{ContextApi, ContextAttributesBuilder, GlContext, PossiblyCurrentContext, Version},
     display::GetGlDisplay,
     prelude::{GlConfig, GlDisplay, NotCurrentGlContextSurfaceAccessor},
-    surface::{GlSurface, Surface, SwapInterval, WindowSurface},
+    surface::{GlSurface, Surface as glutinSurface, SwapInterval, WindowSurface},
 };
 use glutin_winit::{DisplayBuilder, GlWindow};
 use nalgebra::Vector2;
@@ -21,12 +21,15 @@ use winit::{
 };
 
 use crate::{
+    resource::{Resource, ResourceKind},
     scene::{
         node::{Node, NodeKind},
         Scene,
     },
     utils::pool::Handle,
 };
+
+use super::surface::Surface;
 
 pub static GL: OnceCell<Context> = OnceCell::new();
 
@@ -57,7 +60,7 @@ impl GpuProgram {
             gl.attach_shader(program, fragment_shader);
             gl.delete_shader(fragment_shader);
             gl.link_program(program);
-   
+
             Ok(GpuProgram { id: program })
         }
     }
@@ -80,7 +83,7 @@ impl Drop for GpuProgram {
 
 pub struct Renderer {
     pub context: Window,
-    pub gl_surface: Surface<WindowSurface>,
+    pub gl_surface: glutinSurface<WindowSurface>,
     pub gl_context: PossiblyCurrentContext,
     flat_shader: GpuProgram,
     cameras: Vec<Handle<Node>>,
@@ -149,6 +152,9 @@ impl Renderer {
                 gl_context.display().get_proc_address(s) as *const _
             })
         };
+        unsafe {
+            context.enable(glow::DEPTH_TEST);
+        }
 
         println!("opengl版本：{:?}", context.version());
         GL.set(context).unwrap();
@@ -167,6 +173,50 @@ impl Renderer {
         }
     }
 
+    fn draw_surface(&mut self, surf: &Surface) {}
+
+    pub fn upload_resources(&mut self, resources: &Vec<Rc<RefCell<Resource>>>) {
+        unsafe {
+            let gl = GL.get().unwrap();
+            for resource in resources.iter() {
+                if let ResourceKind::Texture(texture) = resource.borrow_mut().borrow_kind_mut() {
+                    if texture.need_upload {
+                        if texture.need_upload {
+                            if texture.gpu_tex == None {
+                                texture.gpu_tex = gl.create_texture().ok();
+                            }
+                            gl.bind_texture(glow::TEXTURE_2D, texture.gpu_tex);
+                            gl.tex_image_2d(
+                                glow::TEXTURE_2D,
+                                0,
+                                glow::RGBA as i32,
+                                texture.width as i32,
+                                texture.height as i32,
+                                0,
+                                glow::RGBA,
+                                glow::UNSIGNED_BYTE,
+                                Some(bytemuck::cast_slice(&texture.pixels)),
+                            );
+                            gl.tex_parameter_i32(
+                                glow::TEXTURE_2D,
+                                glow::TEXTURE_MAG_FILTER,
+                                glow::LINEAR as i32,
+                            );
+                            gl.tex_parameter_i32(
+                                glow::TEXTURE_2D,
+                                glow::TEXTURE_MIN_FILTER,
+                                glow::LINEAR_MIPMAP_LINEAR as i32,
+                            );
+
+                            gl.generate_mipmap(glow::TEXTURE_2D);
+                            texture.need_upload = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn render(&mut self, scenes: &[&Scene]) {
         let gl = GL.get().unwrap();
 
@@ -174,7 +224,7 @@ impl Renderer {
 
         unsafe {
             gl.clear_color(0.0, 0.63, 0.91, 1.0);
-            gl.clear(glow::COLOR_BUFFER_BIT);
+            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
         }
 
         for scene in scenes.iter() {
@@ -192,7 +242,7 @@ impl Renderer {
                             NodeKind::Camera(_) => self.cameras.push(node_handle),
                             _ => (),
                         }
-                        // Queue children for render
+
                         for child_handle in node.children.iter() {
                             self.traversal_stack.push(child_handle.clone());
                         }
@@ -208,9 +258,6 @@ impl Renderer {
                 .get_uniform_location("worldViewProjection")
                 .unwrap();
 
-           
-
-            // Render scene from each camera
             for camera_handle in self.cameras.iter() {
                 if let Some(camera_node) = scene.borrow_node(&camera_handle) {
                     if let NodeKind::Camera(camera) = camera_node.borrow_kind() {
@@ -220,6 +267,7 @@ impl Renderer {
                                 client_size.width as f32,
                                 client_size.height as f32,
                             ));
+
                             gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
                         }
 
@@ -228,8 +276,6 @@ impl Renderer {
                         for mesh_handle in self.meshes.iter() {
                             if let Some(node) = scene.borrow_node(&mesh_handle) {
                                 let mvp = view_projection * node.global_transform;
-                             
-
                                 unsafe {
                                     gl.use_program(Some(self.flat_shader.id));
                                     gl.uniform_matrix_4_f32_slice(
@@ -251,6 +297,5 @@ impl Renderer {
             }
         }
 
-        // self.gl_surface.swap_buffers(&self.gl_context).unwrap();
     }
 }

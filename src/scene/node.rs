@@ -6,7 +6,7 @@ use nalgebra::{Matrix4, Point3, Quaternion, Rotation3, UnitQuaternion, Vector2, 
 use crate::{
     math::rect::Rect,
     renderer::surface::{Surface, SurfaceSharedData},
-    utils::pool::Handle,
+    utils::pool::Handle, resource::Resource,
 };
 #[derive(Debug)]
 pub struct Light {
@@ -99,6 +99,14 @@ impl Mesh {
         let data = Rc::new(RefCell::new(SurfaceSharedData::make_cube()));
         self.surfaces.push(Surface::new(&data));
     }
+
+    pub fn apply_texture(&mut self, tex: Rc<RefCell<Resource>>) {
+        for surface in self.surfaces.iter_mut() {
+            surface.set_texture(tex.clone());
+        }
+    }
+
+    
 }
 
 #[derive(Debug)]
